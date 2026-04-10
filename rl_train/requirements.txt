@@ -1,0 +1,7 @@
+gymnasium>=0.29
+stable-baselines3>=2.3
+numpy>=1.23
+PyYAML>=6.0
+Pillow>=9.0
+torch>=2.0
+wandb>=0.17

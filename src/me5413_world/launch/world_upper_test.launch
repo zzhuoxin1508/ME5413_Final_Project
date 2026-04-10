@@ -1,0 +1,9 @@
+<launch>
+  <!-- Spawn Jackal at top of the ramp (ramp_10 = (18.74, -11.55), facing west) -->
+  <include file="$(find me5413_world)/launch/world.launch">
+    <arg name="spawn_x"   value="-14.84"/>
+    <arg name="spawn_y"   value="-11.58"/>
+    <arg name="spawn_z"   value="0.1"/>
+    <arg name="spawn_yaw" value="0.0"/>
+  </include>
+</launch>

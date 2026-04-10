@@ -1,0 +1,6 @@
+image: 2D_map_cropped_clean.pgm
+resolution: 0.0500
+origin: [-2.6088, -8.3560, 0.0]
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.196

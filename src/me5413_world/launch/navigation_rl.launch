@@ -1,0 +1,46 @@
+<launch>
+
+  <!-- Optional keyboard controller for debugging -->
+  <arg name="enable_teleop" default="false" />
+  <node if="$(arg enable_teleop)"
+        name="teleop_twist_keyboard"
+        pkg="teleop_twist_keyboard"
+        type="teleop_twist_keyboard.py"
+        output="screen"
+        respawn="true"/>
+
+  <!-- Run map server -->
+  <arg name="map_file" default="$(find me5413_world)/maps/2D_map_cropped_clean.yaml"/>
+  <node name="map_server" pkg="map_server" type="map_server" args="$(arg map_file)" />
+
+  <!-- AMCL localization -->
+  <include file="$(find jackal_navigation)/launch/include/amcl.launch" />
+
+  <!-- 保留 move_base 做全局规划，但不让它直接控制机器人 -->
+  <group>
+    <remap from="/cmd_vel" to="/cmd_vel_nav" />
+    <include file="$(find jackal_navigation)/launch/include/move_base.launch" />
+  </group>
+
+  <!-- Pure RL local controller -->
+  <node name="rl_controller"
+        pkg="me5413_world"
+        type="rl_controller.py"
+        output="screen">
+    <param name="plan_topic" value="/move_base/NavfnROS/plan" />
+    <param name="odom_topic" value="/odometry/filtered" />
+    <param name="scan_topic" value="/scan" />
+    <param name="cloud_topic" value="/mid/points" />
+    <param name="cmd_vel_topic" value="/cmd_vel" />
+    <param name="self_min_range" value="0.30" />
+    <param name="frame_stack" value="4" />
+    <param name="policy_backend" value="torchscript" />
+    <param name="policy_model_path" value="/home/yun/me5413/ME5413_Final_Project/models/policy.pt" />
+  </node>
+
+  <!-- Launch RViz with navigation settings -->
+  <node type="rviz" name="rviz" pkg="rviz" args="-d $(find me5413_world)/rviz/navigation.rviz" output="log" respawn="true"/>
+
+  <node ns="me5413_world" pkg="me5413_world" type="goal_publisher_node" name="goal_publisher_node" output="screen" />
+
+</launch>

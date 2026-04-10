@@ -1,0 +1,20 @@
+<launch>
+  <!-- Upper-floor door tour test:
+       - reuses navigation.launch (map, AMCL, move_base, mission_manager)
+       - enables TEB local planner for dynamic obstacle avoidance
+       - tells mission_manager to skip lower/ramp and visit all 4 doors directly -->
+
+  <include file="$(find me5413_world)/launch/navigation.launch">
+    <arg name="use_teb" value="true"/>
+    <arg name="initial_pose_x" value="-14.84"/>
+    <arg name="initial_pose_y" value="-11.58"/>
+    <arg name="initial_pose_a" value="0.0"/>
+  </include>
+
+  <!-- Override mission_manager param: skip SCAN_LOWER, go directly to DOOR_TOUR -->
+  <param name="/mission_manager/door_tour_mode" value="true"/>
+  <!-- Final approach point after visiting all 4 doors (same as box 4 but x=3.2 to enter the door) -->
+  <rosparam param="/mission_manager/door_tour_final_goal">[3.2, 7.75, 3.14]</rosparam>
+
+
+</launch>

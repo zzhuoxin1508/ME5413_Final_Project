@@ -3,6 +3,12 @@
        See jackal_description for details. -->
   <arg name="config" default="base" />
 
+  <!-- Spawn pose (override from caller to start the robot at a different place) -->
+  <arg name="spawn_x"   default="-22.5" />
+  <arg name="spawn_y"   default="-7.5" />
+  <arg name="spawn_z"   default="0.1" />
+  <arg name="spawn_yaw" default="0.0" />
+
   <!-- Load Jackal's description, controllers, and teleop nodes. -->
   <!-- <include file="$(find jackal_description)/launch/description.launch">
     <arg name="config" value="$(arg config)" />
@@ -27,7 +33,7 @@
 
   <!-- Spawn Jackal -->
   <node name="urdf_spawner" pkg="gazebo_ros" type="spawn_model"
-	      args="-urdf -model jackal -param robot_description -x -22.5 -y -7.5 -z 0.1 -R 0.0 -P 0.0 -Y 0.0" />
+	      args="-urdf -model jackal -param robot_description -x $(arg spawn_x) -y $(arg spawn_y) -z $(arg spawn_z) -R 0.0 -P 0.0 -Y $(arg spawn_yaw)" />
 
   <!-- Add a static world frame -->
   <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="world_broadcast" args="0 0 0 0 0 0 1 world odom" /> -->

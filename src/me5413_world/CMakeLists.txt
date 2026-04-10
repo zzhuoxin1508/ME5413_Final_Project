@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.0.2)
 project(me5413_world)
 
-## Compile as C++11, supported in ROS Kinetic and newer
-add_compile_options(-std=c++11)
+## Compile as C++17 (required for Gazebo 11 and ignition/math)
+add_compile_options(-std=c++17)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -45,3 +45,9 @@ add_dependencies(goal_publisher_node ${catkin_EXPORTED_TARGETS} ${${PROJECT_NAME
 
 add_library(object_spawner_gz_plugin SHARED src/object_spawner_gz_plugin.cpp)
 target_link_libraries(object_spawner_gz_plugin ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES})
+
+catkin_install_python(PROGRAMS
+  scripts/mission_manager.py
+  scripts/rl_controller.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)

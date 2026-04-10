@@ -1,0 +1,48 @@
+env:
+  map_yaml: /home/yun/me5413/ME5413_Final_Project/src/me5413_world/maps/2D_map_cropped_clean.yaml
+  dt: 0.1
+  max_steps: 800
+  goal_tolerance: 0.35
+  collision_radius: 0.25
+  min_start_goal_dist: 3.0
+  max_start_goal_dist: 20.0
+  lidar_max_range: 10.0
+  lidar_front_deg: 35.0
+  ray_step: 0.05
+
+robot:
+  max_lin: 0.6
+  max_ang: 1.2
+
+obs:
+  frame_stack: 4
+
+reward:
+  progress_weight: 1.0
+  step_penalty: -0.01
+  collision_penalty: -30.0
+  goal_reward: 30.0
+  smooth_weight: -0.05
+  heading_weight: 0.5
+  turn_weight: 0.1
+
+train:
+  algo: ppo
+  seed: 1
+  total_steps: 1200000
+  learning_rate: 0.0003
+  n_steps: 1024
+  batch_size: 256
+  gamma: 0.99
+  gae_lambda: 0.95
+  ent_coef: 0.001
+  vf_coef: 0.5
+  clip_range: 0.2
+  save_dir: /home/yun/me5413/ME5413_Final_Project/rl_train/checkpoints
+  model_name: ppo_nav2d
+  wandb:
+    enabled: true
+    project: me5413-nav2d
+    entity: ""
+    run_name: ""
+    tags: ["gym2d", "ppo"]

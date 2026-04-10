@@ -1,0 +1,27 @@
+controller_frequency: 10.0
+# Lower global planner frequency: avoid path "jumping" every cycle when AMCL pose
+# updates slightly. Local planner (TEB) still runs at controller_frequency.
+planner_frequency: 2.0
+planner_patience: 5.0
+controller_patience: 15.0
+
+local_costmap:
+  update_frequency: 20.0
+  publish_frequency: 5.0
+  # Cover both possible plugin names (jackal default = inflater_layer, ROS default = inflation_layer)
+  inflater_layer:
+    inflation_radius: 0.30
+    cost_scaling_factor: 4.0
+  inflation_layer:
+    inflation_radius: 0.35
+    cost_scaling_factor: 4.0
+
+global_costmap:
+  update_frequency: 5.0
+  publish_frequency: 2.0
+  inflater_layer:
+    inflation_radius: 0.50
+    cost_scaling_factor: 2.0
+  inflation_layer:
+    inflation_radius: 0.50
+    cost_scaling_factor: 2.0

@@ -1,0 +1,29 @@
+<launch>
+  <arg name="use_teb" default="True" />
+
+  <node pkg="move_base" type="move_base" respawn="false" name="move_base" output="screen">
+    <!-- Use project-local costmap config with 3D pointcloud support -->
+    <rosparam file="$(find me5413_world)/config/costmap_common_params.yaml" command="load" ns="global_costmap" />
+    <rosparam file="$(find me5413_world)/config/costmap_common_params.yaml" command="load" ns="local_costmap" />
+
+    <rosparam file="$(find jackal_navigation)/params/map_nav_params/local_costmap_params.yaml" command="load" />
+    <rosparam file="$(find jackal_navigation)/params/map_nav_params/global_costmap_params.yaml" command="load" />
+
+    <rosparam file="$(find jackal_navigation)/params/move_base_params.yaml" command="load" />
+    <!-- Project-level tuning overrides (costmap rates + inflation radius) -->
+    <rosparam file="$(find me5413_world)/config/move_base_tuning.yaml" command="load" />
+
+    <!-- Always switch global planner to GlobalPlanner -->
+    <rosparam file="$(find me5413_world)/config/global_planner_params.yaml" command="load" />
+    <param name="base_global_planner" value="global_planner/GlobalPlanner" />
+
+    <!-- Local planner: default TrajectoryPlannerROS, optional TEB -->
+    <param unless="$(arg use_teb)" name="base_local_planner" value="base_local_planner/TrajectoryPlannerROS" />
+    <rosparam unless="$(arg use_teb)" file="$(find jackal_navigation)/params/base_local_planner_params.yaml" command="load" />
+
+    <param if="$(arg use_teb)" name="base_local_planner" value="teb_local_planner/TebLocalPlannerROS" />
+    <rosparam if="$(arg use_teb)" file="$(find me5413_world)/config/teb_local_planner_params.yaml" command="load" />
+
+    <remap from="odom" to="odometry/filtered" />
+  </node>
+</launch>

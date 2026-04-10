@@ -1,0 +1,61 @@
+TebLocalPlannerROS:
+  odom_topic: odometry/filtered
+  map_frame: map
+
+  # Trajectory
+  teb_autosize: true
+  dt_ref: 0.5
+  dt_hysteresis: 0.15
+  # Make TEB strictly follow the global plan rather than re-orienting on its own.
+  global_plan_overwrite_orientation: false
+  global_plan_viapoint_sep: 0.8
+  via_points_ordered: true
+  # Shorter lookahead = TEB cannot "see" a turn far ahead and cut the corner early.
+  max_global_plan_lookahead_dist: 1.5
+  feasibility_check_no_poses: 3
+
+  # Robot
+  max_vel_x: 1.8
+  max_vel_x_backwards: 0.5
+  max_vel_theta: 1.2
+  acc_lim_x: 0.8
+  acc_lim_theta: 0.8
+  min_turning_radius: 0.50
+  footprint_model:
+    type: "circular"
+    radius: 0.25
+
+  # Goal tolerance
+  xy_goal_tolerance: 0.20
+  yaw_goal_tolerance: 0.40
+  free_goal_vel: true
+
+  # Obstacles
+  min_obstacle_dist: 0.32
+  inflation_dist: 0.40
+  include_costmap_obstacles: true
+  costmap_obstacles_behind_robot_dist: 1.0
+  obstacle_poses_affected: 10
+
+  # Optimization
+  no_inner_iterations: 4
+  no_outer_iterations: 2
+  optimization_activate: true
+  optimization_verbose: false
+  penalty_epsilon: 0.1
+  weight_max_vel_x: 2.0
+  weight_max_vel_theta: 1.0
+  weight_acc_lim_x: 1.0
+  weight_acc_lim_theta: 1.0
+  weight_kinematics_nh: 1000.0
+  weight_kinematics_forward_drive: 10.0
+  # Lower optimal-time weight: stop preferring shortcuts; follow the path as drawn.
+  weight_optimaltime: 0.3
+  weight_obstacle: 100.0
+  weight_inflation: 0.5
+  # Make TEB stick tightly to the global plan via points
+  weight_viapoint: 50.0
+  weight_shortest_path: 0.0
+
+  # Homotopy (off for stability)
+  enable_homotopy_class_planning: false

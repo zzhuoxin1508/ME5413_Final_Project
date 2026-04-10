@@ -1,19 +1,31 @@
 <launch>
+    <!-- Optional spawn pose override (default = original lower-floor start) -->
+    <arg name="spawn_x"   default="-22.5"/>
+    <arg name="spawn_y"   default="-7.5"/>
+    <arg name="spawn_z"   default="0.1"/>
+    <arg name="spawn_yaw" default="0.0"/>
+
     <!-- Using the simulation clock -->
     <param name="/use_sim_time" value="true"/>
 
     <!-- Load the project world into Gazebo -->
+    <arg name="gui" default="true"/>
     <include file="$(find gazebo_ros)/launch/empty_world.launch">
         <arg name="world_name" value="$(find me5413_world)/worlds/me5413_project_2526.world"/>
         <arg name="debug" value="false" />
-        <arg name="gui" value="true" />
+        <arg name="gui" value="$(arg gui)" />
         <arg name="paused" value="false"/>
         <arg name="use_sim_time" value="true"/>
         <arg name="headless" value="false"/>
     </include>
 
     <!-- Add our jackal robot into the simulation -->
-    <include file="$(find me5413_world)/launch/include/spawn_jackal.launch"/>
+    <include file="$(find me5413_world)/launch/include/spawn_jackal.launch">
+        <arg name="spawn_x"   value="$(arg spawn_x)"/>
+        <arg name="spawn_y"   value="$(arg spawn_y)"/>
+        <arg name="spawn_z"   value="$(arg spawn_z)"/>
+        <arg name="spawn_yaw" value="$(arg spawn_yaw)"/>
+    </include>
 
 
     <param name="planar_box_description" 
