@@ -2,6 +2,7 @@
 import math
 
 import rospy
+import std_srvs.srv
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Bool, Int32MultiArray
@@ -317,6 +318,15 @@ class MissionManager:
             return
         self.send_goal(self.route[self.route_idx], "%s_%d" % (route_name, self.route_idx))
 
+    def _move_base_is_idle(self):
+        """Check if move_base has no active goal (status list empty or all succeeded/aborted)."""
+        if self.move_base_status is None:
+            return False
+        for s in self.move_base_status.status_list:
+            if s.status in (0, 1):  # 0=PENDING, 1=ACTIVE
+                return False
+        return True
+
     def route_step(self, route_name):
         if len(self.route) == 0:
             return True
@@ -326,6 +336,14 @@ class MissionManager:
                 return True
             self.send_goal(self.route[self.route_idx], "%s_%d" % (route_name, self.route_idx))
             return False
+
+        # If move_base stopped (GOAL Reached! / aborted) but we haven't reached, resend
+        if self._move_base_is_idle() and self.goal_sent_time is not None:
+            elapsed = (rospy.Time.now() - self.goal_sent_time).to_sec()
+            if elapsed > 2.0:  # wait 2s before resending to avoid spam
+                rospy.logwarn("move_base idle but goal not reached, resending %s_%d",
+                              route_name, self.route_idx)
+                self.resend_active_goal()
 
         if self.active_goal_timed_out():
             if self.retry_count < self.max_retries:
@@ -339,12 +357,16 @@ class MissionManager:
         """Build door tour route. Prepend ramp endpoint so the robot drives
         to the top of the ramp first, then visits all doors."""
         route = []
-        # Add last two ramp points: AMCL resets at second-to-last, then drives to last
+        # Add last two ramp points
         if len(self.ramp_waypoints) >= 2:
-            route.append(self.ramp_waypoints[-2])  # AMCL reset point (18.3)
-            route.append(self.ramp_waypoints[-1])  # ramp top (18.7)
+            route.append(self.ramp_waypoints[-2])
+            route.append(self.ramp_waypoints[-1])
         elif self.ramp_waypoints:
             route.append(self.ramp_waypoints[-1])
+        # Add upper_waypoints (observation points before doors)
+        self._door_tour_observe_idx = len(route)  # first upper waypoint index
+        for wp in self.upper_waypoints:
+            route.append(wp)
         for bid in sorted(self.final_goals_by_box.keys()):
             xyyaw = self.final_goals_by_box[bid]
             route.append(xyyaw)
@@ -405,54 +427,21 @@ class MissionManager:
             return
 
         if self.state == "DOOR_TOUR":
-            # When reaching door_0 (second-to-last ramp point), reset AMCL there
-            # then pause 3 seconds for AMCL to stabilize before continuing
-            if self.route_idx == 0 and not getattr(self, "_ramp_top_amcl_reset", False):
-                d = self.distance_to_active_goal()
-                if d is not None and d < 1.0:
-                    self._ramp_top_amcl_reset = True
-                    self._amcl_reset_time = rospy.Time.now()
-                    ramp_end = self.ramp_waypoints[-2] if len(self.ramp_waypoints) >= 2 else None
-                    if ramp_end:
-                        msg = PoseWithCovarianceStamped()
-                        msg.header.stamp = rospy.Time.now()
-                        msg.header.frame_id = "map"
-                        msg.pose.pose.position.x = float(ramp_end[0])
-                        msg.pose.pose.position.y = float(ramp_end[1])
-                        qx, qy, qz, qw = yaw_to_quat(float(ramp_end[2]))
-                        msg.pose.pose.orientation.x = qx
-                        msg.pose.pose.orientation.y = qy
-                        msg.pose.pose.orientation.z = qz
-                        msg.pose.pose.orientation.w = qw
-                        msg.pose.covariance[0] = 0.05
-                        msg.pose.covariance[7] = 0.05
-                        msg.pose.covariance[35] = 0.02
-                        self._initialpose_pub.publish(msg)
-                        rospy.loginfo("AMCL reset to ramp top: x=%.2f y=%.2f — waiting 3s",
-                                      float(ramp_end[0]), float(ramp_end[1]))
-                    return
-            # Wait after AMCL reset for it to stabilize
-            # During this time, force current_pose to the reset position
-            # so route_step doesn't falsely think we reached the next goal
-            if getattr(self, "_amcl_reset_time", None) is not None:
-                elapsed = (rospy.Time.now() - self._amcl_reset_time).to_sec()
-                ramp_end = self.ramp_waypoints[-2] if len(self.ramp_waypoints) >= 2 else None
-                if ramp_end and self.current_pose is not None:
-                    self.current_pose.position.x = float(ramp_end[0])
-                    self.current_pose.position.y = float(ramp_end[1])
-                if elapsed < 0.3:
-                    return
+            # Dwell 2s at the first observation point (13.0, 5.0)
+            obs_idx = getattr(self, "_door_tour_observe_idx", -1)
+            if self.route_idx == obs_idx:
+                if getattr(self, "_observe_dwell_time", None) is None:
+                    d = self.distance_to_active_goal()
+                    if d is not None and d < self.goal_tolerance:
+                        self._observe_dwell_time = rospy.Time.now()
+                        rospy.loginfo("Observing at door_%d, dwelling 2s", self.route_idx)
+                        return
                 else:
-                    self._amcl_reset_time = None
-                    # Force current_pose one more time and re-send next goal
-                    if ramp_end and self.current_pose is not None:
-                        self.current_pose.position.x = float(ramp_end[0])
-                        self.current_pose.position.y = float(ramp_end[1])
-                    # Re-send the current goal so move_base picks it up fresh
-                    if self.route_idx < len(self.route):
-                        self.send_goal(self.route[self.route_idx],
-                                       "door_%d" % self.route_idx)
-                    rospy.loginfo("AMCL stabilized, continuing door tour")
+                    if (rospy.Time.now() - self._observe_dwell_time).to_sec() < 2.0:
+                        return
+                    else:
+                        self._observe_dwell_time = None
+                        rospy.loginfo("Observation complete, continuing")
             done = self.route_step("door")
             if done:
                 self.transition("DONE", "door_tour_done")
@@ -485,10 +474,17 @@ class MissionManager:
                 self.unblock_sent = True
                 rospy.loginfo("UNBLOCK_SENT t=%.2f", self.elapsed())
             unblock_dt = (rospy.Time.now() - self.state_enter_time).to_sec()
-            if unblock_dt >= self.unblock_wait:
+            # Wait 3 seconds for cone to fully disappear and costmap to clear
+            if unblock_dt >= 3.0:
                 if self.stop_after_unblock:
                     self.transition("DONE", "stop_after_unblock")
                 else:
+                    # Clear costmaps so the cone's ghost doesn't block planning
+                    try:
+                        rospy.ServiceProxy("/move_base/clear_costmaps", std_srvs.srv.Empty)()
+                        rospy.loginfo("Costmaps cleared after unblock")
+                    except Exception:
+                        pass
                     self.transition("GO_EXIT", "unblock_sent")
                     self.send_goal(self.exit_goal, "exit_goal")
             return
@@ -506,10 +502,6 @@ class MissionManager:
             return
 
         if self.state == "GO_RAMP":
-            # From ramp_4 onwards: use odom only (slope + rest of ramp)
-            # Blend back to AMCL happens after leaving GO_RAMP via transition()
-            if self.route_idx >= self.RAMP_SLOPE_START:
-                self._set_amcl_ramp_mode(True)
             done = self.route_step("ramp")
             if done:
                 self.transition("SCAN_UPPER", "ramp_done")

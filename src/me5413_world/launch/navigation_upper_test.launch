@@ -6,8 +6,8 @@
 
   <include file="$(find me5413_world)/launch/navigation.launch">
     <arg name="use_teb" value="true"/>
-    <arg name="initial_pose_x" value="-14.84"/>
-    <arg name="initial_pose_y" value="-11.58"/>
+    <arg name="initial_pose_x" value="18.9"/>
+    <arg name="initial_pose_y" value="-11.55"/>
     <arg name="initial_pose_a" value="0.0"/>
   </include>
 
