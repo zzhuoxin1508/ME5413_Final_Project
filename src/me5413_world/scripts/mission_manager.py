@@ -5,9 +5,9 @@ import rospy
 import std_srvs.srv
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 from nav_msgs.msg import Odometry
-from std_msgs.msg import Bool, Int32MultiArray
+from std_msgs.msg import Bool, Int32MultiArray, String
 from actionlib_msgs.msg import GoalStatusArray
-from tf.transformations import quaternion_from_euler
+from tf.transformations import quaternion_from_euler, euler_from_quaternion
 
 
 def yaw_to_quat(yaw):
@@ -22,6 +22,7 @@ class MissionManager:
         self.start_time = rospy.Time.now()
 
         self.goal_tolerance = float(rospy.get_param("~goal_tolerance", 0.45))
+        self.yaw_tolerance = float(rospy.get_param("~yaw_tolerance", 0.2))
         self.goal_timeout = float(rospy.get_param("~goal_timeout", 60.0))
         self.max_retries = int(rospy.get_param("~max_retries", 2))
         self.tick_hz = float(rospy.get_param("~tick_hz", 2.0))
@@ -36,9 +37,6 @@ class MissionManager:
         )
         self.use_external_box_counts = bool(rospy.get_param("~use_external_box_counts", False))
 
-        # Door-tour mode: skip lower scan / ramp, directly visit all final_goals_by_box
-        # in box-id order. Useful for testing dynamic obstacle avoidance on the upper floor.
-        self.door_tour_mode = bool(rospy.get_param("~door_tour_mode", False))
 
         # Wait for AMCL convergence before starting any mission. Threshold = max
         # acceptable position covariance trace (m^2). 0.5 corresponds to ~0.7 m std dev.
@@ -67,24 +65,28 @@ class MissionManager:
                 [-8.0, -2.0, 0.5],
             ],
         )
-        self.upper_waypoints = rospy.get_param(
-            "~upper_waypoints",
-            [
-                [-4.0, 2.0, 0.0],
-                [0.0, 3.0, 0.0],
-            ],
-        )
         # [box_id, x, y, yaw]
-        self.final_goals_by_box_raw = rospy.get_param(
-            "~final_goals_by_box",
+        self.door_observation_goals_raw = rospy.get_param(
+            "~door_observation_goals",
             [
-                [1, 2.0, 4.0, 0.0],
-                [2, 4.0, 4.0, 0.0],
-                [3, 6.0, 4.0, 0.0],
-                [4, 8.0, 4.0, 0.0],
+                [1, 7.5, -7.59, 3.14],
+                [2, 7.5, -2.47, 3.14],
+                [3, 7.5,  2.57, 3.14],
+                [4, 7.5,  7.75, 3.14],
             ],
         )
-        self.final_goals_by_box = self._parse_final_goals(self.final_goals_by_box_raw)
+        self.door_observation_goals = self._parse_final_goals(self.door_observation_goals_raw)
+
+        self.door_entry_goals_raw = rospy.get_param(
+            "~door_entry_goals",
+            [
+                [1, 9.0, -7.59, 3.14],
+                [2, 9.0, -2.47, 3.14],
+                [3, 9.0,  2.57, 3.14],
+                [4, 9.0,  7.75, 3.14],
+            ],
+        )
+        self.door_entry_goals = self._parse_final_goals(self.door_entry_goals_raw)
 
         # box id -> count
         self.box_counts = {1: 0, 2: 0, 3: 0, 4: 0}
@@ -108,11 +110,25 @@ class MissionManager:
         self.route = []
         self.route_idx = -1
         self.unblock_sent = False
-        self.final_box_id = None
+
+        self.target_digit = None
+        self.target_door_id = None
+
+        self.counting_enabled = True
+        self.box_mapper_shutdown_sent = False
+
+        self.door_ids_in_order = []
+        self.current_door_search_idx = -1
+
+        self.nearest_box_digit = ""
+        self.last_nearest_box_digit_time = None
+        self.verify_wait = float(rospy.get_param("~verify_wait", 2.0))
+        
 
         self.goal_pub = rospy.Publisher("/move_base_simple/goal", PoseStamped, queue_size=1)
         self.unblock_pub = rospy.Publisher("/cmd_unblock", Bool, queue_size=1)
         self._initialpose_pub = rospy.Publisher("/initialpose", PoseWithCovarianceStamped, queue_size=1)
+        self.box_mapper_shutdown_pub = rospy.Publisher("/box_mapper_shutdown", Bool, queue_size=1)
 
         rospy.Subscriber("/amcl_pose", PoseWithCovarianceStamped, self.amcl_cb, queue_size=1)
         # /amcl_pose is published only on convergence/significant change. Use /odometry/filtered
@@ -120,9 +136,14 @@ class MissionManager:
         rospy.Subscriber("/odometry/filtered", Odometry, self.odom_cb, queue_size=1)
         rospy.Subscriber("/move_base/status", GoalStatusArray, self.status_cb, queue_size=1)
         rospy.Subscriber("/mission/box_counts", Int32MultiArray, self.box_counts_cb, queue_size=1)
+        rospy.Subscriber("/digit_on_nearest_box", String, self.nearest_box_digit_cb, queue_size=1)
 
         self.timer = rospy.Timer(rospy.Duration(1.0 / self.tick_hz), self.tick)
         rospy.loginfo("STATE_ENTER %s t=%.2f reason=boot", self.state, self.elapsed())
+
+    def nearest_box_digit_cb(self, msg):
+        self.nearest_box_digit = (msg.data or "").strip()
+        self.last_nearest_box_digit_time = rospy.Time.now()
 
     def _parse_final_goals(self, goals_raw):
         parsed = {}
@@ -176,6 +197,8 @@ class MissionManager:
 
     def box_counts_cb(self, msg):
         if not self.use_external_box_counts:
+            return
+        if not self.counting_enabled:
             return
         if len(msg.data) < 4:
             return
@@ -303,7 +326,15 @@ class MissionManager:
 
     def active_goal_reached(self):
         d = self.distance_to_active_goal()
-        return d is not None and d < self.goal_tolerance
+        if d is None or d >= self.goal_tolerance:
+            return False
+        if self.yaw_tolerance <= 0 or self.current_pose is None or self.active_goal is None:
+            return True
+        q = self.current_pose.orientation
+        cur_yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])[2]
+        tgt_yaw = float(self.active_goal[2])
+        dyaw = math.atan2(math.sin(tgt_yaw - cur_yaw), math.cos(tgt_yaw - cur_yaw))
+        return abs(dyaw) < self.yaw_tolerance
 
     def active_goal_timed_out(self):
         if self.goal_sent_time is None:
@@ -353,30 +384,6 @@ class MissionManager:
                 self.transition("FAIL", "route_timeout")
         return False
 
-    def _build_door_tour_route(self):
-        """Build door tour route. Prepend ramp endpoint so the robot drives
-        to the top of the ramp first, then visits all doors."""
-        route = []
-        # Add last two ramp points
-        if len(self.ramp_waypoints) >= 2:
-            route.append(self.ramp_waypoints[-2])
-            route.append(self.ramp_waypoints[-1])
-        elif self.ramp_waypoints:
-            route.append(self.ramp_waypoints[-1])
-        # Add upper_waypoints (observation points before doors)
-        self._door_tour_observe_idx = len(route)  # first upper waypoint index
-        for wp in self.upper_waypoints:
-            route.append(wp)
-        for bid in sorted(self.final_goals_by_box.keys()):
-            xyyaw = self.final_goals_by_box[bid]
-            route.append(xyyaw)
-            # Add a point slightly inside the door (x - 1.5m)
-            route.append([xyyaw[0] - 1.5, xyyaw[1], xyyaw[2]])
-        final_goal = rospy.get_param("~door_tour_final_goal", None)
-        if final_goal and len(final_goal) >= 3:
-            route.append([float(final_goal[0]), float(final_goal[1]), float(final_goal[2])])
-        return route
-
     def _amcl_converged(self):
         """Return True if we either don't care about AMCL, or AMCL covariance is small."""
         if not self.wait_for_amcl:
@@ -413,38 +420,8 @@ class MissionManager:
                         "starting mission anyway",
                         self.amcl_max_wait,
                         ("%.3f" % self.amcl_pos_cov_trace) if self.amcl_pos_cov_trace else "n/a")
-                if self.door_tour_mode:
-                    door_route = self._build_door_tour_route()
-                    if not door_route:
-                        rospy.logerr("door_tour_mode=true but final_goals_by_box is empty")
-                        self.transition("FAIL", "door_tour_no_goals")
-                        return
-                    self.transition("DOOR_TOUR", "door_tour_mode")
-                    self.start_route(door_route, "door")
-                else:
-                    self.transition("SCAN_LOWER", "amcl_and_move_base_ready")
-                    self.start_route(self.lower_waypoints, "lower")
-            return
-
-        if self.state == "DOOR_TOUR":
-            # Dwell 2s at the first observation point (13.0, 5.0)
-            obs_idx = getattr(self, "_door_tour_observe_idx", -1)
-            if self.route_idx == obs_idx:
-                if getattr(self, "_observe_dwell_time", None) is None:
-                    d = self.distance_to_active_goal()
-                    if d is not None and d < self.goal_tolerance:
-                        self._observe_dwell_time = rospy.Time.now()
-                        rospy.loginfo("Observing at door_%d, dwelling 2s", self.route_idx)
-                        return
-                else:
-                    if (rospy.Time.now() - self._observe_dwell_time).to_sec() < 2.0:
-                        return
-                    else:
-                        self._observe_dwell_time = None
-                        rospy.loginfo("Observation complete, continuing")
-            done = self.route_step("door")
-            if done:
-                self.transition("DONE", "door_tour_done")
+                self.transition("SCAN_LOWER", "amcl_and_move_base_ready")
+                self.start_route(self.lower_waypoints, "lower")
             return
 
         if self.state == "SCAN_LOWER":
@@ -457,15 +434,24 @@ class MissionManager:
                     d_last is not None and d_last < self.lower_last_point_tolerance
                 )
 
-            if done:
-                self.transition("UNBLOCK", "lower_route_done")
-            elif last_point_reached:
+            if done or last_point_reached:
+                self.target_digit = self.choose_final_box()
+                self.counting_enabled = False
+
                 rospy.loginfo(
-                    "LOWER_LAST_POINT_REACHED d=%.2f tol=%.2f",
-                    self.distance_to_point(self.lower_waypoints[-1]),
-                    self.lower_last_point_tolerance,
+                    "TARGET_DIGIT_DECIDED digit=%d count=%d",
+                    self.target_digit,
+                    self.box_counts.get(self.target_digit, -1),
                 )
-                self.transition("UNBLOCK", "lower_last_point_reached")
+
+                if last_point_reached and not done:
+                    rospy.loginfo(
+                        "LOWER_LAST_POINT_REACHED d=%.2f tol=%.2f",
+                        self.distance_to_point(self.lower_waypoints[-1]),
+                        self.lower_last_point_tolerance,
+                    )
+
+                self.transition("UNBLOCK", "target_digit_decided_before_unblock")
             return
 
         if self.state == "UNBLOCK":
@@ -474,8 +460,8 @@ class MissionManager:
                 self.unblock_sent = True
                 rospy.loginfo("UNBLOCK_SENT t=%.2f", self.elapsed())
             unblock_dt = (rospy.Time.now() - self.state_enter_time).to_sec()
-            # Wait 3 seconds for cone to fully disappear and costmap to clear
-            if unblock_dt >= 3.0:
+            # Wait 2 seconds for cone to fully disappear and costmap to clear
+            if unblock_dt >= 2.0:
                 if self.stop_after_unblock:
                     self.transition("DONE", "stop_after_unblock")
                 else:
@@ -490,10 +476,16 @@ class MissionManager:
             return
 
         if self.state == "GO_EXIT":
+            if not self.box_mapper_shutdown_sent:
+                self.box_mapper_shutdown_pub.publish(Bool(data=True))
+                self.box_mapper_shutdown_sent = True
+                rospy.loginfo("BOX_MAPPER_SHUTDOWN_SENT")
+
             if self.active_goal_reached():
                 self.transition("GO_RAMP", "exit_reached")
                 self.start_route(self.ramp_waypoints, "ramp")
                 return
+
             if self.active_goal_timed_out():
                 if self.retry_count < self.max_retries:
                     self.resend_active_goal()
@@ -504,48 +496,83 @@ class MissionManager:
         if self.state == "GO_RAMP":
             done = self.route_step("ramp")
             if done:
-                self.transition("SCAN_UPPER", "ramp_done")
-                self.start_route(self.upper_waypoints, "upper")
+                self.door_ids_in_order = sorted(self.door_observation_goals.keys())
+                self.current_door_search_idx = 0
+
+                if len(self.door_ids_in_order) == 0:
+                    self.transition("FAIL", "no_door_observation_goals")
+                    return
+
+                first_door_id = self.door_ids_in_order[self.current_door_search_idx]
+                self.transition("SEARCH_DOOR", "ramp_done")
+                self.send_goal(self.door_observation_goals[first_door_id], "door_obs_%d" % first_door_id)
             return
 
-        if self.state == "SCAN_UPPER":
-            self.log_box_updates_if_changed()
-            done = self.route_step("upper")
-            if done:
-                self.transition("DECIDE_FINAL", "upper_route_done")
-            return
-
-        if self.state == "DECIDE_FINAL":
-            if len(self.final_goals_by_box) == 0:
-                rospy.logerr("FINAL_DECISION_FAILED no final goals configured")
-                self.transition("FAIL", "missing_final_goals")
-                return
-            self.final_box_id = self.choose_final_box()
-            if self.final_box_id not in self.final_goals_by_box:
-                rospy.logerr("FINAL_DECISION_FAILED box=%d has no goal", self.final_box_id)
-                self.transition("FAIL", "final_goal_missing")
-                return
-            rospy.loginfo(
-                "FINAL_DECISION box=%d count=%d",
-                self.final_box_id,
-                self.box_counts.get(self.final_box_id, -1),
-            )
-            self.transition("GO_FINAL", "final_goal_selected")
-            self.send_goal(self.final_goals_by_box[self.final_box_id], "final_box_%d" % self.final_box_id)
-            return
-
-        if self.state == "GO_FINAL":
+        if self.state == "SEARCH_DOOR":
             if self.active_goal_reached():
-                self.transition("DONE", "final_reached")
-                return
+                if 0 <= self.current_door_search_idx < len(self.door_ids_in_order):
+                    self.target_door_id = self.door_ids_in_order[self.current_door_search_idx]
+                    self.transition("VERIFY_DOOR_DIGIT", "door_observation_reached")
+                    return
+
             if self.active_goal_timed_out():
                 if self.retry_count < self.max_retries:
                     self.resend_active_goal()
                 else:
-                    self.transition("FAIL", "final_timeout")
+                    self.transition("FAIL", "door_observation_timeout")
             return
 
-        if self.state in ("DONE", "FAIL"):
+            if done:
+                self.transition("FAIL", "no_matching_door_found")
+            return
+
+        if self.state == "VERIFY_DOOR_DIGIT":
+            verify_dt = (rospy.Time.now() - self.state_enter_time).to_sec()
+            target_digit_str = str(self.target_digit)
+            seen_digit = self.nearest_box_digit
+
+            if seen_digit == target_digit_str:
+                rospy.loginfo(
+                    "TARGET_DOOR_FOUND door=%d target_digit=%s seen_digit=%s",
+                    self.target_door_id, target_digit_str, seen_digit
+                )
+                self.transition("ENTER_TARGET_DOOR", "door_digit_matched")
+                self.send_goal(
+                    self.door_entry_goals[self.target_door_id],
+                    "door_entry_%d" % self.target_door_id
+                )
+                return
+
+            if verify_dt >= self.verify_wait:
+                rospy.loginfo(
+                    "DOOR_DIGIT_MISMATCH door=%d target_digit=%s seen_digit=%s",
+                    self.target_door_id, target_digit_str, seen_digit
+                )
+
+                self.current_door_search_idx += 1
+                if self.current_door_search_idx < len(self.door_ids_in_order):
+                    next_door_id = self.door_ids_in_order[self.current_door_search_idx]
+                    self.transition("SEARCH_DOOR", "try_next_door")
+                    self.send_goal(
+                        self.door_observation_goals[next_door_id],
+                        "door_obs_%d" % next_door_id
+                    )
+                else:
+                    self.transition("FAIL", "no_matching_door_found")
+                return
+
+            return
+
+        if self.state == "ENTER_TARGET_DOOR":
+            if self.active_goal_reached():
+                self.transition("DONE", "target_door_entered")
+                return
+
+            if self.active_goal_timed_out():
+                if self.retry_count < self.max_retries:
+                    self.resend_active_goal()
+                else:
+                    self.transition("FAIL", "target_door_entry_timeout")
             return
 
 

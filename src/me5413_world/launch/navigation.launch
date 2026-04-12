@@ -84,10 +84,21 @@
       [9.0, 7.75, 3.14],
       [7.5, 7.75, 3.14]
     ]</rosparam>
-    <!-- [box_id, x, y, yaw] -->
-    <rosparam param="final_goals_by_box">[[1, 9.0, -7.59, 3.14], [2, 9.0, -2.47, 3.14], [3, 9.0, 2.57, 3.14], [4, 9.0, 7.75, 3.14]]</rosparam>
-    <!-- Used only when use_external_box_counts is false -->
-    <rosparam param="box_counts_default">[2, 3, 1, 4]</rosparam>
+    <rosparam param="door_observation_goals">[
+      [1, 7.5, -7.59, 3.14],
+      [2, 7.5, -2.47, 3.14],
+      [3, 7.5,  2.57, 3.14],
+      [4, 7.5,  7.75, 3.14]
+    ]</rosparam>
+
+    <rosparam param="door_entry_goals">[
+      [1, 9.0, -7.59, 3.14],
+      [2, 9.0, -2.47, 3.14],
+      [3, 9.0,  2.57, 3.14],
+      [4, 9.0,  7.75, 3.14]
+    ]</rosparam>
+
+    <param name="verify_wait" value="2.0" />
   </node>
 <node pkg="me5413_world"
       type="box_mapper.py"
@@ -108,4 +119,10 @@
     <param name="duplicate_distance_thresh" value="0.50"/>
     <param name="process_every_n" value="5"/>
 </node>
+
+<node pkg="me5413_world"
+      type="box_detector_node.py"
+      name="box_detector_node"
+      output="screen" />
+      
 </launch>
