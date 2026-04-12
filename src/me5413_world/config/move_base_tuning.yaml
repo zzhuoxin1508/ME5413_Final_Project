@@ -10,10 +10,10 @@ local_costmap:
   publish_frequency: 5.0
   # Cover both possible plugin names (jackal default = inflater_layer, ROS default = inflation_layer)
   inflater_layer:
-    inflation_radius: 0.30
+    inflation_radius: 0.25
     cost_scaling_factor: 4.0
   inflation_layer:
-    inflation_radius: 0.30
+    inflation_radius: 0.35
     cost_scaling_factor: 4.0
 
 global_costmap:

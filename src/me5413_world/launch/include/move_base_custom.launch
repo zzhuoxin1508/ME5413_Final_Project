@@ -2,9 +2,8 @@
   <arg name="use_teb" default="True" />
 
   <node pkg="move_base" type="move_base" respawn="false" name="move_base" output="screen">
-    <!-- Use project-local costmap config with 3D pointcloud support -->
-    <rosparam file="$(find me5413_world)/config/costmap_common_params.yaml" command="load" ns="global_costmap" />
-    <rosparam file="$(find me5413_world)/config/costmap_common_params.yaml" command="load" ns="local_costmap" />
+    <rosparam file="$(find jackal_navigation)/params/costmap_common_params.yaml" command="load" ns="global_costmap" />
+    <rosparam file="$(find jackal_navigation)/params/costmap_common_params.yaml" command="load" ns="local_costmap" />
 
     <rosparam file="$(find jackal_navigation)/params/map_nav_params/local_costmap_params.yaml" command="load" />
     <rosparam file="$(find jackal_navigation)/params/map_nav_params/global_costmap_params.yaml" command="load" />
@@ -12,6 +11,45 @@
     <rosparam file="$(find jackal_navigation)/params/move_base_params.yaml" command="load" />
     <!-- Project-level tuning overrides (costmap rates + inflation radius) -->
     <rosparam file="$(find me5413_world)/config/move_base_tuning.yaml" command="load" />
+
+    <!-- Minimal hard override: ensure boxes are sensed as obstacles from front lidar -->
+    <rosparam ns="local_costmap">
+      plugins:
+        - {name: static_layer, type: "costmap_2d::StaticLayer"}
+        - {name: obstacle_layer, type: "costmap_2d::ObstacleLayer"}
+        - {name: inflater_layer, type: "costmap_2d::InflationLayer"}
+      obstacle_layer:
+        observation_sources: front_scan
+        front_scan:
+          data_type: LaserScan
+          topic: /front/scan
+          marking: true
+          clearing: true
+          inf_is_valid: true
+          min_obstacle_height: 0.18
+          max_obstacle_height: 2.0
+          obstacle_range: 8.0
+          raytrace_range: 10.0
+    </rosparam>
+
+    <!-- <rosparam ns="global_costmap">
+      plugins:
+        - {name: static_layer, type: "costmap_2d::StaticLayer"}
+        - {name: obstacle_layer, type: "costmap_2d::ObstacleLayer"}
+        - {name: inflater_layer, type: "costmap_2d::InflationLayer"}
+      obstacle_layer:
+        observation_sources: front_scan
+        front_scan:
+          data_type: LaserScan
+          topic: /front/scan
+          marking: true
+          clearing: true
+          inf_is_valid: true
+          min_obstacle_height: 0.0
+          max_obstacle_height: 2.0
+          obstacle_range: 8.0
+          raytrace_range: 10.0
+    </rosparam> -->
 
     <!-- Always switch global planner to GlobalPlanner -->
     <rosparam file="$(find me5413_world)/config/global_planner_params.yaml" command="load" />
@@ -24,6 +62,8 @@
     <param if="$(arg use_teb)" name="base_local_planner" value="teb_local_planner/TebLocalPlannerROS" />
     <rosparam if="$(arg use_teb)" file="$(find me5413_world)/config/teb_local_planner_params.yaml" command="load" />
 
+    <!-- Force obstacle layers to read the front lidar stream -->
+    <remap from="scan" to="/front/scan" />
     <remap from="odom" to="odometry/filtered" />
   </node>
 </launch>
