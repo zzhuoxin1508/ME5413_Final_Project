@@ -16,7 +16,7 @@ TebLocalPlannerROS:
 
   # Robot
   max_vel_x: 3
-  max_vel_x_backwards: 0.5
+  max_vel_x_backwards: 0.4
   max_vel_theta: 2
   acc_lim_x: 2
   acc_lim_theta: 1.5
@@ -27,7 +27,7 @@ TebLocalPlannerROS:
 
   # Goal tolerance
   xy_goal_tolerance: 0.20
-  yaw_goal_tolerance: 0.40
+  yaw_goal_tolerance: 0.15
   free_goal_vel: true
 
   # Obstacles
@@ -48,7 +48,7 @@ TebLocalPlannerROS:
   weight_acc_lim_x: 1.0
   weight_acc_lim_theta: 1.0
   weight_kinematics_nh: 1000.0
-  weight_kinematics_forward_drive: 10.0
+  weight_kinematics_forward_drive: 50.0
   # Lower optimal-time weight: stop preferring shortcuts; follow the path as drawn.
   weight_optimaltime: 0.3
   weight_obstacle: 100.0

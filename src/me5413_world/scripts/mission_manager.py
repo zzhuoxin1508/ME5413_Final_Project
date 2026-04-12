@@ -7,7 +7,7 @@ from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Bool, Int32MultiArray
 from actionlib_msgs.msg import GoalStatusArray
-from tf.transformations import quaternion_from_euler
+from tf.transformations import quaternion_from_euler, euler_from_quaternion
 
 
 def yaw_to_quat(yaw):
@@ -22,6 +22,7 @@ class MissionManager:
         self.start_time = rospy.Time.now()
 
         self.goal_tolerance = float(rospy.get_param("~goal_tolerance", 0.45))
+        self.yaw_tolerance = float(rospy.get_param("~yaw_tolerance", 0.2))
         self.goal_timeout = float(rospy.get_param("~goal_timeout", 60.0))
         self.max_retries = int(rospy.get_param("~max_retries", 2))
         self.tick_hz = float(rospy.get_param("~tick_hz", 2.0))
@@ -303,7 +304,15 @@ class MissionManager:
 
     def active_goal_reached(self):
         d = self.distance_to_active_goal()
-        return d is not None and d < self.goal_tolerance
+        if d is None or d >= self.goal_tolerance:
+            return False
+        if self.yaw_tolerance <= 0 or self.current_pose is None or self.active_goal is None:
+            return True
+        q = self.current_pose.orientation
+        cur_yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])[2]
+        tgt_yaw = float(self.active_goal[2])
+        dyaw = math.atan2(math.sin(tgt_yaw - cur_yaw), math.cos(tgt_yaw - cur_yaw))
+        return abs(dyaw) < self.yaw_tolerance
 
     def active_goal_timed_out(self):
         if self.goal_sent_time is None:
@@ -474,8 +483,8 @@ class MissionManager:
                 self.unblock_sent = True
                 rospy.loginfo("UNBLOCK_SENT t=%.2f", self.elapsed())
             unblock_dt = (rospy.Time.now() - self.state_enter_time).to_sec()
-            # Wait 3 seconds for cone to fully disappear and costmap to clear
-            if unblock_dt >= 3.0:
+            # Wait 2 seconds for cone to fully disappear and costmap to clear
+            if unblock_dt >= 2.0:
                 if self.stop_after_unblock:
                     self.transition("DONE", "stop_after_unblock")
                 else:
