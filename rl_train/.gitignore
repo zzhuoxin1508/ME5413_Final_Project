@@ -1,5 +1,0 @@
-.venv/
-checkpoints/
-*.pyc
-__pycache__/
-wandb/

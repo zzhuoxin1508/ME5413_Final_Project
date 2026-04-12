@@ -5,36 +5,27 @@
   <arg name="initial_pose_y" default="-7.5"/>
   <arg name="initial_pose_a" default="0.0"/>
 
-  <!-- Connect the robot to a keyboard teleop controller -->
   <node name="teleop_twist_keyboard" pkg="teleop_twist_keyboard" type="teleop_twist_keyboard.py" output="screen" respawn="true"/>
 
-  <!-- Run the map server -->
   <arg name="map_file" default="$(find me5413_world)/maps/my_map.yaml"/>
   <node name="map_server" pkg="map_server" type="map_server" args="$(arg map_file)" />
 
-  <!-- Launch the AMCL Localizer (project-local tuning for long corridors) -->
   <include file="$(find me5413_world)/launch/include/amcl_tuned.launch">
     <arg name="initial_pose_x" value="$(arg initial_pose_x)"/>
     <arg name="initial_pose_y" value="$(arg initial_pose_y)"/>
     <arg name="initial_pose_a" value="$(arg initial_pose_a)"/>
   </include>
 
-  <!-- Launch Move Base (default TrajectoryPlannerROS)
-  <include file="$(find jackal_navigation)/launch/include/move_base.launch" /> -->
-
-  <!-- Launch Move Base (customizable planners) -->
   <include file="$(find me5413_world)/launch/include/move_base_custom.launch">
     <arg name="use_teb" value="$(arg use_teb)"/>
   </include>
 
-  <!-- Launch Rviz with our settings -->
   <node type="rviz" name="rviz" pkg="rviz" args="-d $(find me5413_world)/rviz/navigation.rviz" output="log" respawn="true">
     <env name="LIBGL_ALWAYS_SOFTWARE" value="1"/>
   </node>
 
   <node ns="me5413_world" pkg="me5413_world" type="goal_publisher_node" name="goal_publisher_node" output="screen" />
 
-  <!-- Optional mission state-machine skeleton (M2 step 1) -->
   <node if="$(arg enable_mission_manager)"
         name="mission_manager"
         pkg="me5413_world"
@@ -49,29 +40,39 @@
     <param name="stop_after_unblock" value="false" />
     <param name="lower_unlock_on_last_point" value="true" />
     <param name="lower_last_point_tolerance" value="0.60" />
-    <param name="use_external_box_counts" value="true" />
-    <!-- Route points from RViz /clicked_point (map frame) -->
+    <param name="use_external_box_counts" value="false" />
+
     <rosparam param="lower_waypoints">[
       [-20.090410232543945, -7.669590950012207, 0.0],
+      [-18.590103149414062, -3.6851954460144043, 0.0],
       [-18.517948150634766, 1.5223450660705566, 0.0],
-      [-18.82706069946289, 9, -0.785],
-      [-11.7247953414917, 9, -2.355],
+      [-18.82706069946289, 7.418295860290527, 0.0],
+      [-15.361568450927734, 8.720917701721191, 0.0],
+      [-11.7247953414917, 8.368246078491211, 0.0],
+      [-11.485183715820312, 5.551599979400635, 0.0],
       [-9.918159484863281, 5.651898384094238, 0.0],
-      [-8.517316436767578, 9, -0.7857877],
-      [-1.3040390014648438, 9, -2.355],
-      [-0.9517345428466797, -0.4745903015136719, 3.14],
-      [-0.8398723602294922, -8.678493595123291, 2.355],
-      [-8.5911102294921875, -9.0, 0.785],
-      [-11.7247953414917, -9., 2.355],
+      [-7.917316436767578, 8.303430557250977, 0.0],
+      [-4.187255859375, 8.056537628173828, 0.0],
+      [-2.3040390014648438, 8.605403900146484, 0.0],
+      [-1.1448478698730469, 5.563741207122803, -1.57],
+      [-0.9517345428466797, -0.4745903015136719, -1.57],
+      [-0.8398723602294922, -5.578493595123291, -1.57],
+      [-5.5911102294921875, -8.224624633789062, 3.14],
+      [-6.876270294189453, -5.889817237854004, 3.14],
+      [-9.841850280761719, -5.521495819091797, 3.14],
+      [-14.611534118652344, -6.60670804977417, 3.14],
       [-14.805927276611328, -9.293010711669922, -1.57]
     ]</rosparam>
+
     <rosparam param="exit_goal">[-14.805927276611328, -9.293010711669922, 1.57]</rosparam>
+
     <rosparam param="ramp_waypoints">[
       [-14.84, -11.55, 0.0],
       [2.0, -11.55, 0.0],
       [18.3, -11.55, 0.0],
       [18.9, -11.55, 0.0]
     ]</rosparam>
+
     <rosparam param="upper_waypoints">[
       [13.0, 0.0, 3.14],
       [9, 0.0, 3.14],
@@ -84,11 +85,11 @@
       [9.0, 7.75, 3.14],
       [7.5, 7.75, 3.14]
     ]</rosparam>
-    <!-- [box_id, x, y, yaw] -->
+
     <rosparam param="final_goals_by_box">[[1, 9.0, -7.59, 3.14], [2, 9.0, -2.47, 3.14], [3, 9.0, 2.57, 3.14], [4, 9.0, 7.75, 3.14]]</rosparam>
-    <!-- Used only when use_external_box_counts is false -->
     <rosparam param="box_counts_default">[2, 3, 1, 4]</rosparam>
   </node>
+
 <node pkg="me5413_world"
       type="box_mapper.py"
       name="box_mapper"
@@ -108,4 +109,5 @@
     <param name="duplicate_distance_thresh" value="0.50"/>
     <param name="process_every_n" value="5"/>
 </node>
+
 </launch>
